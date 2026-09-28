@@ -1,0 +1,1248 @@
+{
+  "id": "WkflwOrderBill002",
+  "name": "order_to_billing_and_stock",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "20000001-0000-4000-8000-000000000001",
+      "name": "Every 5 Minutes"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        180
+      ],
+      "id": "20000001-0000-4000-8000-000000000002",
+      "name": "Manual Execution"
+    },
+    {
+      "parameters": {
+        "path": "order-to-billing-and-stock",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        360
+      ],
+      "id": "20000001-0000-4000-8000-000000000003",
+      "name": "Webhook Trigger",
+      "webhookId": "order-to-billing-and-stock-webhook"
+    },
+    {
+      "parameters": {
+        "url": "http://openmrs-gateway/openmrs/ws/fhir2/R4/Encounter?_tag=encounter&_sort=-date&_count=50&_revinclude=ServiceRequest:encounter&_revinclude=MedicationRequest:encounter",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        0
+      ],
+      "id": "20000001-0000-4000-8000-000000000006",
+      "name": "Fetch Encounters",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "NV3zllgqUv388ppB",
+          "name": "OpenMRS"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "http://openmrs-gateway/openmrs/ws/fhir2/R4/MedicationRequest?_count=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        180
+      ],
+      "id": "20000001-0000-4000-8000-000000000004",
+      "name": "Fetch MedicationRequests",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "NV3zllgqUv388ppB",
+          "name": "OpenMRS"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "http://openmrs-gateway/openmrs/ws/fhir2/R4/ServiceRequest?_count=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        260,
+        360
+      ],
+      "id": "20000001-0000-4000-8000-000000000005",
+      "name": "Fetch ServiceRequests",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "NV3zllgqUv388ppB",
+          "name": "OpenMRS"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function parseBundle(raw) {\n  if (!raw) return {};\n  if (raw.data) {\n    try {\n      return typeof raw.data === 'string' ? JSON.parse(raw.data) : raw.data;\n    } catch (e) {\n      return raw;\n    }\n  }\n  if (typeof raw === 'string') {\n    try { return JSON.parse(raw); } catch (e) { return {}; }\n  }\n  return raw;\n}\n\nconst encBundle = parseBundle($('Fetch Encounters').first()?.json);\nconst medBundle = parseBundle($('Fetch MedicationRequests').first()?.json);\nconst srvBundle = parseBundle($('Fetch ServiceRequests').first()?.json);\n\n// Collect all entries across encBundle (revincludes), medBundle, srvBundle\nconst allEntries = [\n  ...(encBundle.entry || []),\n  ...(medBundle.entry || []),\n  ...(srvBundle.entry || [])\n];\n\nconst medRequests = [];\nconst seenMeds = new Set();\nfor (const e of allEntries) {\n  const r = e.resource;\n  if (!r || r.resourceType !== 'MedicationRequest') continue;\n  if (seenMeds.has(r.id)) continue;\n  seenMeds.add(r.id);\n\n  const patientRef = r.subject?.reference || '';\n  const patientUuid = patientRef.replace(/^Patient\\//, '');\n  const encRef = r.encounter?.reference || '';\n  const encounterUuid = encRef.replace(/^Encounter\\//, '');\n  const medName = r.medicationReference?.display || 'Prescribed Medication';\n  const qty = r.dispenseRequest?.quantity?.value || 1;\n\n  let code = 'DRUG-PARA500';\n  let price = 5.0;\n  if (medName.toLowerCase().includes('amoxicillin')) {\n    code = 'DRUG-AMOX250';\n    price = 12.0;\n  }\n\n  medRequests.push({\n    med_order_uuid: r.id,\n    patient_uuid: patientUuid,\n    encounter_uuid: encounterUuid,\n    medication_name: medName,\n    quantity: qty,\n    product_code: code,\n    unit_price: price\n  });\n}\n\nconst serviceRequests = [];\nconst seenSrvs = new Set();\nfor (const e of allEntries) {\n  const r = e.resource;\n  if (!r || r.resourceType !== 'ServiceRequest') continue;\n  if (seenSrvs.has(r.id)) continue;\n  seenSrvs.add(r.id);\n\n  const patientRef = r.subject?.reference || '';\n  const patientUuid = patientRef.replace(/^Patient\\//, '');\n  const encRef = r.encounter?.reference || '';\n  const encounterUuid = encRef.replace(/^Encounter\\//, '');\n  const srvName = r.code?.text || r.code?.coding?.[0]?.display || 'Lab Test';\n\n  let code = 'LAB-FBC';\n  let price = 35.0;\n  if (srvName.toLowerCase().includes('chest') || srvName.toLowerCase().includes('x-ray')) {\n    code = 'RAD-XRAY-CHEST';\n    price = 75.0;\n  }\n\n  serviceRequests.push({\n    service_order_uuid: r.id,\n    patient_uuid: patientUuid,\n    encounter_uuid: encounterUuid,\n    service_name: srvName,\n    product_code: code,\n    unit_price: price\n  });\n}\n\nconst encounters = [];\nconst now = new Date();\n\nfor (const e of (encBundle.entry || [])) {\n  const r = e.resource;\n  if (!r || r.resourceType !== 'Encounter') continue;\n  \n  // Skip facility visit wrappers\n  const isVisitTag = (r.meta?.tag || []).some(t => t.code === 'visit');\n  if (isVisitTag) continue;\n\n  const patientRef = r.subject?.reference || '';\n  const patientUuid = patientRef.replace(/^Patient\\//, '');\n\n  const matchingMeds = medRequests.filter(m => m.encounter_uuid === r.id);\n  const matchingServices = serviceRequests.filter(s => s.encounter_uuid === r.id);\n\n  // Dynamic date check: within 7 days\n  let isRecent = false;\n  if (r.period?.start) {\n    const d = new Date(r.period.start);\n    if (!isNaN(d.getTime())) {\n      isRecent = (now.getTime() - d.getTime()) < (7 * 24 * 3600 * 1000);\n    }\n  }\n\n  // Check if Inpatient encounter\n  const classCode = (r.class?.code || '').toUpperCase();\n  const typeText = (r.type || []).map(t => t.text || t.coding?.[0]?.display || '').join(' ').toLowerCase();\n  const isInpatient = classCode.includes('IMP') || typeText.includes('inpatient') || typeText.includes('admission');\n  const isConsultation = typeText.includes('consult') || classCode.includes('AMB') || (r.type || []).some(t => t.coding?.[0]?.code === 'dd528487-82a5-4082-9c72-ed246bd49591');\n\n  if (matchingMeds.length > 0 || matchingServices.length > 0 || isInpatient || (isConsultation && isRecent)) {\n    encounters.push({\n      encounter_uuid: r.id,\n      patient_uuid: patientUuid,\n      consultation_code: 'CONS-GEN',\n      consultation_fee: 50.0,\n      is_inpatient: isInpatient,\n      inpatient_code: isInpatient ? 'INP-BED' : null,\n      inpatient_fee: isInpatient ? 100.0 : 0.0,\n      medications: matchingMeds,\n      services: matchingServices\n    });\n  }\n}\n\nreturn [{\n  json: {\n    medication_orders: medRequests,\n    service_orders: serviceRequests,\n    billable_encounters: encounters\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        520,
+        180
+      ],
+      "id": "20000001-0000-4000-8000-000000000007",
+      "name": "Correlate Clinical Orders & Encounters"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $input.first().json;\nconst medOrders = data.medication_orders || [];\n\nreturn medOrders.map(item => ({\n  json: {\n    task_type: 'pharmacy_dispense',\n    med_order_uuid: item.med_order_uuid,\n    patient_uuid: item.patient_uuid,\n    encounter_uuid: item.encounter_uuid,\n    medication_name: item.medication_name,\n    quantity: item.quantity,\n    product_code: item.product_code,\n    unit_price: item.unit_price,\n    picking_origin: `OPENMRS-MED-${item.med_order_uuid}`\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        80
+      ],
+      "id": "20000001-0000-4000-8000-000000000008",
+      "name": "Split Medication Dispense Tasks"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/stock.picking/search_read",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"domain\": [[\"origin\", \"=\", \"{{ $json.picking_origin }}\"]],\n  \"fields\": [\"id\", \"name\", \"state\", \"origin\"],\n  \"limit\": 1\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        80
+      ],
+      "id": "20000001-0000-4000-8000-000000000009",
+      "name": "Check Existing Stock Picking (Idempotency)",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst tasks = $('Split Medication Dispense Tasks').all();\n\nreturn items.map((item, idx) => {\n  const resp = item.json;\n  const searchResult = resp.body !== undefined ? resp.body : resp;\n  const task = tasks[idx]?.json || {};\n\n  let exists = false;\n  let pickingId = null;\n\n  if (Array.isArray(searchResult) && searchResult.length > 0) {\n    exists = true;\n    pickingId = searchResult[0].id;\n  }\n\n  return {\n    json: {\n      ...task,\n      picking_already_exists: exists,\n      existing_picking_id: pickingId\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        80
+      ],
+      "id": "20000001-0000-4000-8000-000000000010",
+      "name": "Evaluate Picking Existence"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.picking_already_exists }}",
+              "value2": false
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        80
+      ],
+      "id": "20000001-0000-4000-8000-000000000011",
+      "name": "New Dispense Required?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/product.product/search_read",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"domain\": [[\"default_code\", \"=\", \"{{ $json.product_code }}\"]],\n  \"fields\": [\"id\", \"name\", \"uom_id\", \"qty_available\"],\n  \"limit\": 1\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1720,
+        0
+      ],
+      "id": "20000001-0000-4000-8000-000000000012",
+      "name": "Lookup Product & Stock in Odoo",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/res.partner/search_read",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"domain\": [[\"ref\", \"=\", \"{{ $('Evaluate Picking Existence').item.json.patient_uuid }}\"]],\n  \"fields\": [\"id\", \"name\"],\n  \"limit\": 1\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1940,
+        0
+      ],
+      "id": "20000001-0000-4000-8000-000000000013",
+      "name": "Lookup Patient Partner for Picking",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/stock.picking/create",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"vals_list\": [{\n    \"picking_type_id\": 2,\n    \"partner_id\": {{ ($json.body && $json.body[0]?.id) || $json[0]?.id || 9 }},\n    \"location_id\": 5,\n    \"location_dest_id\": 2,\n    \"origin\": \"{{ $('Evaluate Picking Existence').item.json.picking_origin }}\",\n    \"move_ids\": [\n      [0, 0, {\n        \"product_id\": {{ ($('Lookup Product & Stock in Odoo').item.json.id || $('Lookup Product & Stock in Odoo').item.json[0]?.id || 56) }},\n        \"product_uom_qty\": {{ $('Evaluate Picking Existence').item.json.quantity }},\n        \"quantity\": {{ $('Evaluate Picking Existence').item.json.quantity }},\n        \"picked\": true,\n        \"product_uom\": {{ ($('Lookup Product & Stock in Odoo').item.json.uom_id?.[0] || $('Lookup Product & Stock in Odoo').item.json[0]?.uom_id?.[0] || 1) }},\n        \"location_id\": 5,\n        \"location_dest_id\": 2\n      }]\n    ]\n  }]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2160,
+        0
+      ],
+      "id": "20000001-0000-4000-8000-000000000014",
+      "name": "Create Delivery Order (stock.picking)",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/stock.picking/button_validate",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"ids\": [{{ (typeof $('Create Delivery Order (stock.picking)').item.json === 'number' ? $('Create Delivery Order (stock.picking)').item.json : $('Create Delivery Order (stock.picking)').item.json[0]) }}],\n  \"context\": {\n    \"skip_sms\": true\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2600,
+        0
+      ],
+      "id": "20000001-0000-4000-8000-000000000015",
+      "name": "Validate Delivery to Deduct Stock",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item, idx) => {\n  const evalItem = $('Evaluate Picking Existence').all()[idx]?.json || {};\n  const prodRaw = $('Lookup Product & Stock in Odoo').all()[idx]?.json || {};\n  const prodInfo = Array.isArray(prodRaw) ? prodRaw[0] : prodRaw;\n  const pickingResp = $('Create Delivery Order (stock.picking)').all()[idx]?.json;\n  const pickingId = Array.isArray(pickingResp) ? pickingResp[0] : (typeof pickingResp === 'number' ? pickingResp : null);\n\n  const preQty = prodInfo.qty_available || 0;\n  const dispensedQty = evalItem.quantity || 1;\n  const postQty = preQty - dispensedQty;\n\n  return {\n    json: {\n      status: 'DISPENSED',\n      picking_id: pickingId,\n      med_order_uuid: evalItem.med_order_uuid,\n      product_id: prodInfo.id || 56,\n      product_code: evalItem.product_code,\n      dispensed_qty: dispensedQty,\n      remaining_qty: postQty,\n      buffer_threshold: 50,\n      needs_reorder: postQty < 50\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2820,
+        0
+      ],
+      "id": "20000001-0000-4000-8000-000000000016",
+      "name": "Check Reorder Buffer"
+    },
+    {
+      "parameters": {
+        "jsCode": "const data = $('Correlate Clinical Orders & Encounters').first().json;\nconst encounters = data.billable_encounters || [];\n\nreturn encounters.map(enc => ({\n  json: {\n    task_type: 'encounter_invoice',\n    encounter_uuid: enc.encounter_uuid,\n    patient_uuid: enc.patient_uuid,\n    invoice_ref: `OPENMRS-ENC-${enc.encounter_uuid}`,\n    consultation_code: enc.consultation_code,\n    consultation_fee: enc.consultation_fee,\n    is_inpatient: enc.is_inpatient,\n    inpatient_code: enc.inpatient_code,\n    inpatient_fee: enc.inpatient_fee,\n    medications: enc.medications,\n    services: enc.services\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        780,
+        360
+      ],
+      "id": "20000001-0000-4000-8000-000000000017",
+      "name": "Split Encounter Invoice Tasks"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/account.move/search_read",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"domain\": [[\"ref\", \"=\", \"{{ $json.invoice_ref }}\"]],\n  \"fields\": [\"id\", \"name\", \"state\", \"ref\", \"amount_total\"],\n  \"limit\": 1\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1020,
+        360
+      ],
+      "id": "20000001-0000-4000-8000-000000000018",
+      "name": "Check Existing Invoice (Idempotency)",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst tasks = $('Split Encounter Invoice Tasks').all();\n\nreturn items.map((item, idx) => {\n  const resp = item.json;\n  const searchResult = resp.body !== undefined ? resp.body : resp;\n  const task = tasks[idx]?.json || {};\n\n  let exists = false;\n  let invoiceId = null;\n\n  if (Array.isArray(searchResult) && searchResult.length > 0) {\n    exists = true;\n    invoiceId = searchResult[0].id;\n  }\n\n  return {\n    json: {\n      ...task,\n      invoice_already_exists: exists,\n      existing_invoice_id: invoiceId\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1260,
+        360
+      ],
+      "id": "20000001-0000-4000-8000-000000000019",
+      "name": "Evaluate Invoice Existence"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.invoice_already_exists }}",
+              "value2": false
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1480,
+        360
+      ],
+      "id": "20000001-0000-4000-8000-000000000020",
+      "name": "New Invoice Required?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/res.partner/search_read",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"domain\": [[\"ref\", \"=\", \"{{ $json.patient_uuid }}\"]],\n  \"fields\": [\"id\", \"name\", \"parent_id\"],\n  \"limit\": 1\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1720,
+        260
+      ],
+      "id": "20000001-0000-4000-8000-000000000021",
+      "name": "Lookup Patient Partner for Invoice",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/product.product/search_read",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"domain\": [[\"default_code\", \"in\", [\"CONS-GEN\", \"LAB-FBC\", \"DRUG-PARA500\", \"DRUG-AMOX250\", \"RAD-XRAY-CHEST\", \"INP-BED\"]]],\n  \"fields\": [\"id\", \"name\", \"default_code\", \"list_price\"]\n}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": true
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1940,
+        260
+      ],
+      "id": "20000001-0000-4000-8000-000000000022",
+      "name": "Get Product Catalog for Pricing",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const invoiceTasks = $('Evaluate Invoice Existence').all();\nconst partners = $('Lookup Patient Partner for Invoice').all();\nconst catalogs = $input.all();\n\nconst results = [];\n\ncatalogs.forEach((catItem, idx) => {\n  const task = invoiceTasks[idx]?.json || {};\n  const rawPartner = partners[idx]?.json;\n  const partnerList = rawPartner && rawPartner.body !== undefined ? rawPartner.body : rawPartner;\n  const rawCatalog = catItem.json;\n  const productCatalog = rawCatalog && rawCatalog.body !== undefined ? rawCatalog.body : rawCatalog;\n\n  if (!Array.isArray(partnerList) || partnerList.length === 0) {\n    // Partner not found yet in Odoo - skip this encounter until synced\n    return;\n  }\n  const partnerId = partnerList[0].id;\n\n  const prodMap = {};\n  if (Array.isArray(productCatalog)) {\n    for (const p of productCatalog) {\n      prodMap[p.default_code] = p;\n    }\n  }\n\n  const invoiceLines = [];\n\n  // 1. General Consultation line\n  const consProd = prodMap['CONS-GEN'];\n  invoiceLines.push([0, 0, {\n    product_id: consProd ? consProd.id : false,\n    name: 'General Consultation Fee',\n    quantity: 1,\n    price_unit: consProd ? consProd.list_price : 50.0\n  }]);\n\n  // 2. Inpatient Bed Fee (if inpatient)\n  if (task.is_inpatient) {\n    const inpProd = prodMap['INP-BED'];\n    invoiceLines.push([0, 0, {\n      product_id: inpProd ? inpProd.id : false,\n      name: 'Inpatient Daily Bed / Admission Fee',\n      quantity: 1,\n      price_unit: inpProd ? inpProd.list_price : 100.0\n    }]);\n  }\n\n  // 3. Services (Lab tests)\n  for (const s of task.services || []) {\n    const sProd = prodMap[s.product_code];\n    invoiceLines.push([0, 0, {\n      product_id: sProd ? sProd.id : false,\n      name: s.service_name,\n      quantity: 1,\n      price_unit: sProd ? sProd.list_price : s.unit_price\n    }]);\n  }\n\n  // 4. Medications\n  for (const m of task.medications || []) {\n    const mProd = prodMap[m.product_code];\n    invoiceLines.push([0, 0, {\n      product_id: mProd ? mProd.id : false,\n      name: m.medication_name,\n      quantity: m.quantity,\n      price_unit: mProd ? mProd.list_price : m.unit_price\n    }]);\n  }\n\n  results.push({\n    json: {\n      move_type: 'out_invoice',\n      partner_id: partnerId,\n      ref: task.invoice_ref,\n      encounter_uuid: task.encounter_uuid,\n      patient_uuid: task.patient_uuid,\n      invoice_lines: invoiceLines\n    }\n  });\n});\n\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2160,
+        260
+      ],
+      "id": "20000001-0000-4000-8000-000000000023",
+      "name": "Construct Draft Customer Invoice"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/account.move/create",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"vals_list\": [{\n    \"move_type\": \"out_invoice\",\n    \"partner_id\": {{ $json.partner_id }},\n    \"ref\": \"{{ $json.ref }}\",\n    \"invoice_line_ids\": {{ JSON.stringify($json.invoice_lines) }}\n  }]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2380,
+        260
+      ],
+      "id": "20000001-0000-4000-8000-000000000024",
+      "name": "Create Draft Invoice in account.move",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item, idx) => {\n  const invoiceResp = item.json;\n  const invoiceId = Array.isArray(invoiceResp) ? invoiceResp[0] : (typeof invoiceResp === 'number' ? invoiceResp : null);\n  const constructItem = $('Construct Draft Customer Invoice').all()[idx]?.json || {};\n\n  return {\n    json: {\n      status: 'INVOICE_CREATED',\n      account_move_id: invoiceId,\n      invoice_ref: constructItem.ref,\n      encounter_uuid: constructItem.encounter_uuid,\n      patient_uuid: constructItem.patient_uuid,\n      timestamp: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2600,
+        260
+      ],
+      "id": "20000001-0000-4000-8000-000000000025",
+      "name": "Log Invoice Created"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/account.move/search_read",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"domain\": [[\"payment_state\", \"in\", [\"paid\", \"in_payment\"]], [\"ref\", \"like\", \"OPENMRS-ENC-\"]],\n  \"fields\": [\"id\", \"name\", \"payment_state\", \"ref\", \"amount_total\"],\n  \"limit\": 20\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        780,
+        540
+      ],
+      "id": "20000001-0000-4000-8000-000000000026",
+      "name": "Fetch Paid Invoices for Clearance",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nif (!items || items.length === 0) return [];\n\nfunction parseBundle(raw) {\n  if (!raw) return {};\n  if (raw.data) {\n    try {\n      return typeof raw.data === 'string' ? JSON.parse(raw.data) : raw.data;\n    } catch (e) {\n      return raw;\n    }\n  }\n  if (typeof raw === 'string') {\n    try { return JSON.parse(raw); } catch (e) { return {}; }\n  }\n  return raw;\n}\n\nconst encBundle = parseBundle($('Fetch Encounters').first()?.json);\nconst encToPatient = {};\nfor (const e of (encBundle.entry || [])) {\n  const r = e.resource;\n  if (!r || r.resourceType !== 'Encounter') continue;\n  const pRef = r.subject?.reference || '';\n  const pUuid = pRef.replace(/^Patient\\//, '');\n  if (r.id && pUuid) {\n    encToPatient[r.id] = pUuid;\n  }\n}\n\nconst results = [];\nfor (const item of items) {\n  const inv = item.json;\n  if (!inv || !inv.id) continue;\n  const encUuid = (inv.ref || '').replace(/^OPENMRS-ENC-/, '');\n  const patUuid = encToPatient[encUuid] || null;\n  results.push({\n    json: {\n      invoice_id: inv.id,\n      invoice_name: inv.name,\n      payment_state: inv.payment_state,\n      encounter_uuid: encUuid,\n      patient_uuid: patUuid,\n      cleared_at: new Date().toISOString()\n    }\n  });\n}\nreturn results;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1020,
+        540
+      ],
+      "id": "20000001-0000-4000-8000-000000000027",
+      "name": "Extract Paid Encounters"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item, idx) => {\n  const paidEnc = $('Extract Paid Encounters').all()[idx]?.json || {};\n  return {\n    json: {\n      status: 'CLEARANCE_TAGGED',\n      invoice_id: paidEnc.invoice_id,\n      invoice_name: paidEnc.invoice_name,\n      encounter_uuid: paidEnc.encounter_uuid,\n      patient_uuid: paidEnc.patient_uuid,\n      payment_state: paidEnc.payment_state,\n      clinical_clearance: 'Payment Settled: Financially Cleared in OpenMRS',\n      timestamp: paidEnc.cleared_at\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1480,
+        540
+      ],
+      "id": "20000001-0000-4000-8000-000000000028",
+      "name": "Reconcile Financial Clearance Tag"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/stock.picking/action_confirm",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"ids\": [{{ (typeof $('Create Delivery Order (stock.picking)').item.json === 'number' ? $('Create Delivery Order (stock.picking)').item.json : $('Create Delivery Order (stock.picking)').item.json[0]) }}]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2380,
+        0
+      ],
+      "id": "20000001-0000-4000-8000-000000000031",
+      "name": "Confirm Delivery Order (stock.picking)",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.needs_reorder }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        3040,
+        0
+      ],
+      "id": "20000001-0000-4000-8000-000000000032",
+      "name": "Reorder Required?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/purchase.order/create",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"vals_list\": [{\n    \"partner_id\": 10,\n    \"origin\": \"AUTO-REORDER-{{ $json.product_code }}\",\n    \"order_line\": [\n      [0, 0, {\n        \"product_id\": {{ $json.product_id }},\n        \"product_qty\": 100\n      }]\n    ]\n  }]\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        3260,
+        -80
+      ],
+      "id": "20000001-0000-4000-8000-000000000033",
+      "name": "Create Draft Purchase Order (purchase.order)",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map((item, idx) => {\n  const poResp = item.json;\n  const poId = Array.isArray(poResp) ? poResp[0] : (typeof poResp === 'number' ? poResp : null);\n  const bufferItem = $('Check Reorder Buffer').all()[idx]?.json || {};\n  return {\n    json: {\n      status: 'REORDER_PO_CREATED',\n      purchase_order_id: poId,\n      product_code: bufferItem.product_code,\n      remaining_qty: bufferItem.remaining_qty,\n      reorder_qty: 100,\n      timestamp: new Date().toISOString()\n    }\n  };\n});"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3480,
+        -80
+      ],
+      "id": "20000001-0000-4000-8000-000000000034",
+      "name": "Log Reorder Purchase Order"
+    },
+    {
+      "parameters": {
+        "jsCode": "return $input.all().map(item => ({\n  json: {\n    status: 'STOCK_SUFFICIENT',\n    product_code: item.json.product_code,\n    remaining_qty: item.json.remaining_qty,\n    buffer_threshold: item.json.buffer_threshold,\n    needs_reorder: false\n  }\n}));"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        3260,
+        80
+      ],
+      "id": "20000001-0000-4000-8000-000000000035",
+      "name": "Log Stock Sufficient"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://openmrs-gateway/openmrs/ws/rest/v1/obs",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"person\": \"{{ $json.patient_uuid }}\",\n  \"encounter\": \"{{ $json.encounter_uuid }}\",\n  \"concept\": \"162169AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA\",\n  \"obsDatetime\": \"{{ $json.cleared_at }}\",\n  \"value\": \"Financial Clearance: Payment Settled (Odoo Invoice: {{ $json.invoice_name }})\"\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1260,
+        540
+      ],
+      "id": "20000001-0000-4000-8000-000000000030",
+      "name": "Tag Financial Clearance in OpenMRS",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "NV3zllgqUv388ppB",
+          "name": "OpenMRS"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "=http://openmrs-gateway/openmrs/ws/rest/v1/obs?encounter={{ $json.encounter_uuid }}&concept=162169AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1140,
+        540
+      ],
+      "id": "20000001-0000-4000-8000-000000000029",
+      "name": "Check Existing Clearance Obs",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "NV3zllgqUv388ppB",
+          "name": "OpenMRS"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "function extractResults(raw) {\n  if (!raw) return [];\n  if (Array.isArray(raw.results)) return raw.results;\n  if (Array.isArray(raw)) return raw;\n  if (raw.body) {\n    if (Array.isArray(raw.body.results)) return raw.body.results;\n    if (typeof raw.body === 'string') {\n      try {\n        const parsed = JSON.parse(raw.body);\n        if (Array.isArray(parsed.results)) return parsed.results;\n        if (Array.isArray(parsed)) return parsed;\n      } catch (e) {}\n    }\n  }\n  if (raw.data) {\n    if (Array.isArray(raw.data.results)) return raw.data.results;\n    if (typeof raw.data === 'string') {\n      try {\n        const parsed = JSON.parse(raw.data);\n        if (Array.isArray(parsed.results)) return parsed.results;\n        if (Array.isArray(parsed)) return parsed;\n      } catch (e) {}\n    }\n  }\n  if (typeof raw === 'string') {\n    try {\n      const parsed = JSON.parse(raw);\n      if (Array.isArray(parsed.results)) return parsed.results;\n      if (Array.isArray(parsed)) return parsed;\n    } catch (e) {}\n  }\n  return [];\n}\n\nconst obsResults = $input.all();\nconst paidEncs = $('Extract Paid Encounters').all();\n\nconst uncleared = [];\nobsResults.forEach((item, idx) => {\n  const obsData = item.json;\n  const results = extractResults(obsData);\n  const paidEnc = paidEncs[idx]?.json || {};\n\n  // If no observation exists and we have valid encounter_uuid and patient_uuid:\n  if (results.length === 0 && paidEnc.encounter_uuid && paidEnc.patient_uuid) {\n    uncleared.push({\n      json: paidEnc\n    });\n  }\n});\n\nreturn uncleared;"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1360,
+        540
+      ],
+      "id": "20000001-0000-4000-8000-000000000036",
+      "name": "Filter Uncleared Encounters"
+    }
+  ],
+  "connections": {
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Fetch Encounters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Execution": {
+      "main": [
+        [
+          {
+            "node": "Fetch Encounters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Encounters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Encounters": {
+      "main": [
+        [
+          {
+            "node": "Fetch MedicationRequests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch MedicationRequests": {
+      "main": [
+        [
+          {
+            "node": "Fetch ServiceRequests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch ServiceRequests": {
+      "main": [
+        [
+          {
+            "node": "Correlate Clinical Orders & Encounters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Correlate Clinical Orders & Encounters": {
+      "main": [
+        [
+          {
+            "node": "Split Medication Dispense Tasks",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Split Encounter Invoice Tasks",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Fetch Paid Invoices for Clearance",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Medication Dispense Tasks": {
+      "main": [
+        [
+          {
+            "node": "Check Existing Stock Picking (Idempotency)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Existing Stock Picking (Idempotency)": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Picking Existence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Picking Existence": {
+      "main": [
+        [
+          {
+            "node": "New Dispense Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Dispense Required?": {
+      "main": [
+        [
+          {
+            "node": "Lookup Product & Stock in Odoo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Product & Stock in Odoo": {
+      "main": [
+        [
+          {
+            "node": "Lookup Patient Partner for Picking",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Patient Partner for Picking": {
+      "main": [
+        [
+          {
+            "node": "Create Delivery Order (stock.picking)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Delivery Order (stock.picking)": {
+      "main": [
+        [
+          {
+            "node": "Confirm Delivery Order (stock.picking)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Delivery to Deduct Stock": {
+      "main": [
+        [
+          {
+            "node": "Check Reorder Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Encounter Invoice Tasks": {
+      "main": [
+        [
+          {
+            "node": "Check Existing Invoice (Idempotency)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Existing Invoice (Idempotency)": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Invoice Existence",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Invoice Existence": {
+      "main": [
+        [
+          {
+            "node": "New Invoice Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "New Invoice Required?": {
+      "main": [
+        [
+          {
+            "node": "Lookup Patient Partner for Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Lookup Patient Partner for Invoice": {
+      "main": [
+        [
+          {
+            "node": "Get Product Catalog for Pricing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Product Catalog for Pricing": {
+      "main": [
+        [
+          {
+            "node": "Construct Draft Customer Invoice",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Construct Draft Customer Invoice": {
+      "main": [
+        [
+          {
+            "node": "Create Draft Invoice in account.move",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Draft Invoice in account.move": {
+      "main": [
+        [
+          {
+            "node": "Log Invoice Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Paid Invoices for Clearance": {
+      "main": [
+        [
+          {
+            "node": "Extract Paid Encounters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Paid Encounters": {
+      "main": [
+        [
+          {
+            "node": "Check Existing Clearance Obs",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Confirm Delivery Order (stock.picking)": {
+      "main": [
+        [
+          {
+            "node": "Validate Delivery to Deduct Stock",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Reorder Buffer": {
+      "main": [
+        [
+          {
+            "node": "Reorder Required?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Reorder Required?": {
+      "main": [
+        [
+          {
+            "node": "Create Draft Purchase Order (purchase.order)",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Stock Sufficient",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Create Draft Purchase Order (purchase.order)": {
+      "main": [
+        [
+          {
+            "node": "Log Reorder Purchase Order",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tag Financial Clearance in OpenMRS": {
+      "main": [
+        [
+          {
+            "node": "Reconcile Financial Clearance Tag",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check Existing Clearance Obs": {
+      "main": [
+        [
+          {
+            "node": "Filter Uncleared Encounters",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter Uncleared Encounters": {
+      "main": [
+        [
+          {
+            "node": "Tag Financial Clearance in OpenMRS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

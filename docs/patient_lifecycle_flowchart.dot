@@ -1,0 +1,189 @@
+digraph PatientLifecycle {
+    // General Graph Settings
+    graph [
+        rankdir="TB",
+        nodesep=1.5,
+        ranksep=1.1,
+        bgcolor="#FFFFFF",
+        fontname="Helvetica,Arial,sans-serif",
+        fontsize=15,
+        compound=true,
+        splines=polyline,
+        dpi=180
+    ];
+
+    node [
+        fontname="Helvetica,Arial,sans-serif",
+        fontsize=12,
+        shape=rect,
+        style="filled,rounded",
+        penwidth=1.6,
+        margin="0.42,0.24"
+    ];
+
+    edge [
+        fontname="Helvetica,Arial,sans-serif",
+        fontsize=10.5,
+        color="#4A5568",
+        penwidth=1.8,
+        arrowsize=0.85
+    ];
+
+    // Subgraph 1: Registration & Master Patient Index
+    subgraph cluster_phase1 {
+        label = "Phase 1: Registration & Master Patient Index (MPI)";
+        labeljust="l";
+        fontname="Helvetica-Bold,Arial,sans-serif";
+        fontsize=13.5;
+        margin=24;
+        color="#CBD5E0";
+        style="filled,rounded";
+        fillcolor="#F8FAFC";
+        penwidth=1.5;
+
+        A1 [label="OpenMRS: Register Patient\n(Luhn Mod-30 ID, cityVillage & UUID)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=5.2];
+        A2 [label="n8n: Demographics Sync Pipeline\n(Batch Lookup & vals_list Atomic Create)", fillcolor="#FFFAF0", color="#DD6B20", fontcolor="#7B341E", width=5.2];
+        A3 [label="Odoo 19: Create Customer Record\n(res.partner with ref = UUID & rank = 1)", fillcolor="#FAF5FF", color="#805AD5", fontcolor="#44337A", width=5.2];
+
+        A1 -> A2 -> A3;
+    }
+
+    // Subgraph 2: Check-in & Triage
+    subgraph cluster_phase2 {
+        label = "Phase 2: Check-in & Outpatient Triage";
+        labeljust="l";
+        fontname="Helvetica-Bold,Arial,sans-serif";
+        fontsize=13.5;
+        margin=24;
+        color="#CBD5E0";
+        style="filled,rounded";
+        fillcolor="#F8FAFC";
+        penwidth=1.5;
+
+        B1 [label="OpenMRS: Start Outpatient Visit\n(Location: Outpatient Clinic | tag=visit)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=5.2];
+        B2 [label="OpenMRS: Record Vital Signs\n(BP 120/80, Pulse 78, Temp 38.2°C, BMI 23.0)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=5.2];
+
+        B1 -> B2;
+    }
+
+    // Subgraph 3: Doctor Consultation & Clinical Orders
+    subgraph cluster_phase3 {
+        label = "Phase 3: Doctor Consultation & Clinical Orders";
+        labeljust="l";
+        fontname="Helvetica-Bold,Arial,sans-serif";
+        fontsize=13.5;
+        margin=24;
+        color="#CBD5E0";
+        style="filled,rounded";
+        fillcolor="#F8FAFC";
+        penwidth=1.5;
+
+        C1 [label="OpenMRS: Clinical Consultation (tag=encounter)\n(SOAP Note, History & Diagnosis: URTI)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=5.2];
+        
+        C_rx [label="Prescribe Medications\n(MedicationRequest: Amoxicillin, Paracetamol)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=4.4];
+        C_lab [label="Order Diagnostic Tests\n(ServiceRequest: LAB-FBC, Chest X-Ray)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=4.4];
+
+        C1 -> C_rx;
+        C1 -> C_lab;
+    }
+
+    // Subgraph 4: Pharmacy Dispensing (Outpatient Branch)
+    subgraph cluster_phase4 {
+        label = "Phase 4: Pharmacy Dispensing & Stock (Outpatient Branch)";
+        labeljust="l";
+        fontname="Helvetica-Bold,Arial,sans-serif";
+        fontsize=13.5;
+        margin=24;
+        color="#CBD5E0";
+        style="filled,rounded";
+        fillcolor="#F8FAFC";
+        penwidth=1.5;
+
+        D1 [label="OpenMRS: Pharmacy App\nClick 'Dispense' (Status = Dispensed)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=4.8];
+        D2 [label="n8n: Order-to-Stock Pipeline\n(Origin: OPENMRS-MED-<uuid>)", fillcolor="#FFFAF0", color="#DD6B20", fontcolor="#7B341E", width=4.8];
+        D3 [label="Odoo 19: Validate Delivery (WH/OUT)\n(button_validate -> Status: Done)", fillcolor="#FAF5FF", color="#805AD5", fontcolor="#44337A", width=4.8];
+        D4 [label="Odoo 19: Deduct Physical Stock\n(Track Lot: LOT-AMOX & Expiry)", fillcolor="#FAF5FF", color="#805AD5", fontcolor="#44337A", width=4.8];
+        D5 [label="Odoo 19: Safety Buffer Check (< 50)\n(Draft RFQ if Threshold Reached)", fillcolor="#FAF5FF", color="#805AD5", fontcolor="#44337A", width=4.8];
+
+        D1 -> D2 -> D3 -> D4 -> D5;
+    }
+
+    // Subgraph 5: Inpatient (Inpatient Branch)
+    subgraph cluster_phase5 {
+        label = "Phase 5: Inpatient Admission & Ward Management (Inpatient Branch)";
+        labeljust="l";
+        fontname="Helvetica-Bold,Arial,sans-serif";
+        fontsize=13.5;
+        margin=24;
+        color="#CBD5E0";
+        style="filled,rounded";
+        fillcolor="#F8FAFC";
+        penwidth=1.5;
+
+        E1 [label="OpenMRS: Clinician Recommends Admission\n(Location: Inpatient Ward | class: IMP)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=4.8];
+        E2 [label="OpenMRS: Inpatient Bed Allocation\n(Assign Bed 04 & Nursing Intake)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=4.8];
+        E3 [label="OpenMRS: Inpatient Ward Care\n(Daily Notes, 4-Hour Vitals & MAR)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=4.8];
+        E4 [label="n8n: Inpatient Daily Bed Fee Engine\n(INP-BED $100/day + CONS-GEN $50/day)", fillcolor="#FFFAF0", color="#DD6B20", fontcolor="#7B341E", width=4.8];
+
+        E1 -> E2 -> E3 -> E4;
+    }
+
+    // Subgraph 6: Billing & Invoicing
+    subgraph cluster_phase6 {
+        label = "Phase 6: Consolidated Billing & Cashier Settlement";
+        labeljust="l";
+        fontname="Helvetica-Bold,Arial,sans-serif";
+        fontsize=13.5;
+        margin=26;
+        color="#CBD5E0";
+        style="filled,rounded";
+        fillcolor="#F8FAFC";
+        penwidth=1.5;
+
+        F1 [label="n8n: Aggregate Orders by Encounter\n(Atomic FHIR _revinclude: Lab + Meds + Bed)", fillcolor="#FFFAF0", color="#DD6B20", fontcolor="#7B341E", width=5.2];
+        F2 [label="Odoo 19: Customer Invoice (account.move)\n(Consult $50 + Bed $100 + Lab $35 + Meds $17)", fillcolor="#FAF5FF", color="#805AD5", fontcolor="#44337A", width=5.2];
+        F3 [label="Odoo 19: Cashier Registers Payment\n(action_post & Payment Wizard -> Paid)", fillcolor="#FAF5FF", color="#805AD5", fontcolor="#44337A", width=5.2];
+        F4 [label="n8n: Financial Clearance Pipeline\n(Pre-check GET /obs & Idempotency Guard)", fillcolor="#FFFAF0", color="#DD6B20", fontcolor="#7B341E", width=5.2];
+        F5 [label="OpenMRS: Financial Clearance Badge\n(Obs Concept 162169: Status = CLEARED)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=5.2];
+
+        F1 -> F2 -> F3 -> F4 -> F5;
+    }
+
+    // Subgraph 7: Discharge & Visit Closure
+    subgraph cluster_phase7 {
+        label = "Phase 7: Discharge & Visit Closure";
+        labeljust="l";
+        fontname="Helvetica-Bold,Arial,sans-serif";
+        fontsize=13.5;
+        margin=24;
+        color="#CBD5E0";
+        style="filled,rounded";
+        fillcolor="#F8FAFC";
+        penwidth=1.5;
+
+        G1 [label="OpenMRS: Doctor Verifies Clearance\n(Signs Clinical Discharge Summary)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=5.2];
+        G2 [label="OpenMRS: End Active Visit\n(Clinical History Archived & Ledger Closed)", fillcolor="#EBF8FF", color="#3182CE", fontcolor="#1A365D", width=5.2];
+
+        G1 -> G2;
+    }
+
+    // Cross-phase Connections
+    A3 -> B1 [color="#2B6CB0", penwidth=2.2, label="  Patient Arrives at Clinic  "];
+    B2 -> C1 [color="#2B6CB0", penwidth=2.2, label="  Vitals Recorded & Triaged  "];
+    
+    // Outpatient Branch (Left)
+    C_rx -> D1 [color="#2B6CB0", penwidth=2.2, label="  Rx Issued (Outpatient)  "];
+    
+    // Inpatient Branch (Right)
+    C1 -> E1 [color="#C53030", penwidth=2.2, style="dashed", label="  If Severe / Inpatient  ", minlen=2];
+    
+    // Diagnostic lab orders to billing
+    C_lab -> F1 [color="#DD6B20", penwidth=2.2, label="  Billable Diagnostic Orders  "];
+    
+    // Convergence to Billing
+    D5 -> F1 [color="#805AD5", penwidth=2.2, label="  Dispensed Stock Deduction  ", minlen=2];
+    E4 -> F1 [color="#DD6B20", penwidth=2.2, style="dashed", label="  Ward Bed Stays  ", minlen=2];
+    
+    // Clearance to Discharge
+    F5 -> G1 [color="#38A169", penwidth=2.2, label="  Payment Verified & Cleared  "];
+}

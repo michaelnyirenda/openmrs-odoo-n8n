@@ -1,0 +1,47 @@
+# Docker persistent volume data directories
+# These directories contain live database binaries (Postgres, MariaDB, SQLite, filestores).
+# They MUST NOT be committed to git.
+odoo-db-data/
+odoo-web-data/
+openmrs-db-data/
+openmrs-data/
+n8n-data/
+*-data/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+.venv/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Logs and runtime databases
+*.log
+*.sqlite
+*.sqlite3
+
+# Operating System temporary files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+desktop.ini
+
+# IDE & Editor caches
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+scratch/

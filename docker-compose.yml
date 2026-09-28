@@ -1,0 +1,125 @@
+version: '3.8'
+
+networks:
+  health-network:
+    driver: bridge
+
+services:
+  # ==========================================
+  # 1. ODOO 19 & POSTGRESQL DATABASE
+  # ==========================================
+  odoo-db:
+    image: postgres:16
+    container_name: odoo-db
+    environment:
+      - POSTGRES_USER=odoo
+      - POSTGRES_PASSWORD=odoo_secure_db_pass
+      - POSTGRES_DB=postgres
+    volumes:
+      - ./odoo-db-data:/var/lib/postgresql/data:Z
+    networks:
+      - health-network
+    restart: unless-stopped
+
+  odoo:
+    image: odoo:19.0
+    container_name: odoo19
+    depends_on:
+      - odoo-db
+    ports:
+      - "8069:8069"
+    environment:
+      - HOST=odoo-db
+      - USER=odoo
+      - PASSWORD=odoo_secure_db_pass
+    volumes:
+      - ./odoo-web-data:/var/lib/odoo:Z
+      - ./odoo-config/odoo.conf:/etc/odoo/odoo.conf:Z
+    networks:
+      - health-network
+    restart: unless-stopped
+
+  # ==========================================
+  # 2. OPENMRS 3 & MARIADB DATABASE
+  # ==========================================
+  openmrs-db:
+    image: mariadb:10.11
+    container_name: openmrs-db
+    command: --max-allowed-packet=64M --innodb-buffer-pool-size=2G
+    environment:
+      - MYSQL_DATABASE=openmrs
+      - MYSQL_USER=openmrs
+      - MYSQL_PASSWORD=openmrs_secure_db_pass
+      - MYSQL_ROOT_PASSWORD=root_secure_pass
+    volumes:
+      - ./openmrs-db-data:/var/lib/mysql:Z
+    networks:
+      - health-network
+    restart: unless-stopped
+
+  openmrs-backend:
+    image: openmrs/openmrs-reference-application-3-backend:nightly
+    container_name: openmrs-backend
+    depends_on:
+      - openmrs-db
+    environment:
+      OMRS_DB_HOSTNAME: openmrs-db
+      OMRS_DB_PORT: "3306"
+      OMRS_DB_NAME: openmrs
+      OMRS_DB_USER: openmrs
+      OMRS_DB_PASSWORD: openmrs_secure_db_pass
+      OMRS_CONFIG_AUTO_UPDATE_DATABASE: "true"
+      OMRS_CONFIG_CREATE_TABLES: "false"
+    volumes:
+      - ./openmrs-data:/openmrs/data:Z
+    networks:
+      health-network:
+        aliases:
+          - backend
+    restart: unless-stopped
+
+  openmrs-frontend:
+    image: openmrs/openmrs-reference-application-3-frontend:nightly
+    container_name: openmrs-frontend
+    environment:
+      SPA_PATH: /openmrs/spa
+      API_URL: /openmrs
+    depends_on:
+      - openmrs-backend
+    networks:
+      health-network:
+        aliases:
+          - frontend
+    restart: unless-stopped
+
+  openmrs-gateway:
+    image: openmrs/openmrs-reference-application-3-gateway:nightly
+    container_name: openmrs-gateway
+    depends_on:
+      - openmrs-frontend
+      - openmrs-backend
+    ports:
+      - "8080:80"
+    networks:
+      - health-network
+    restart: unless-stopped
+
+  # ==========================================
+  # 3. N8N INTEGRATION ENGINE
+  # ==========================================
+  n8n:
+    image: docker.n8n.io/n8nio/n8n:latest
+    container_name: n8n-engine
+    ports:
+      - "5678:5678"
+    environment:
+      - N8N_PORT=5678
+      - N8N_PROTOCOL=http
+      - N8N_HOST=localhost
+      - WEBHOOK_URL=http://localhost:5678/
+      - GENERIC_TIMEZONE=Africa/Windhoek
+    volumes:
+      - ./n8n-data:/home/node/.n8n:Z
+    networks:
+      - health-network
+    restart: unless-stopped

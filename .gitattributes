@@ -1,0 +1,21 @@
+# Enforce Unix line endings (LF) across all platforms
+# Critical for Windows WSL2 & Docker environments to prevent ^M carriage return errors
+* text=auto
+
+*.sh text eol=lf
+*.bash text eol=lf
+*.py text eol=lf
+*.json text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+*.conf text eol=lf
+*.dot text eol=lf
+*.md text eol=lf
+Dockerfile* text eol=lf
+
+# Binary files
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.svg text
+*.ico binary

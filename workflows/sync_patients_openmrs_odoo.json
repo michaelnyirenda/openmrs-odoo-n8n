@@ -1,0 +1,345 @@
+{
+  "id": "WkflwSyncPat0001",
+  "name": "sync_patients_openmrs_odoo",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "minutes",
+              "minutesInterval": 5
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.2,
+      "position": [
+        0,
+        0
+      ],
+      "id": "10000001-0000-4000-8000-000000000001",
+      "name": "Every 5 Minutes"
+    },
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.manualTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        200
+      ],
+      "id": "10000001-0000-4000-8000-000000000002",
+      "name": "Manual Execution"
+    },
+    {
+      "parameters": {
+        "path": "sync-patients",
+        "httpMethod": "POST",
+        "responseMode": "onReceived",
+        "responseData": "allEntries",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2,
+      "position": [
+        0,
+        400
+      ],
+      "id": "10000001-0000-4000-8000-000000000012",
+      "name": "Webhook Trigger",
+      "webhookId": "sync-patients-webhook"
+    },
+    {
+      "parameters": {
+        "url": "http://openmrs-gateway/openmrs/ws/fhir2/R4/Patient?_sort=-_lastUpdated&_count=100",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpBasicAuth",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        240,
+        200
+      ],
+      "id": "10000001-0000-4000-8000-000000000003",
+      "name": "Fetch Recent Patients from OpenMRS FHIR",
+      "credentials": {
+        "httpBasicAuth": {
+          "id": "NV3zllgqUv388ppB",
+          "name": "OpenMRS"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const raw = $input.first()?.json || {};\nlet bundle = raw;\nif (raw && raw.data) {\n  try {\n    bundle = typeof raw.data === 'string' ? JSON.parse(raw.data) : raw.data;\n  } catch (e) {\n    bundle = raw;\n  }\n} else if (typeof raw === 'string') {\n  try { bundle = JSON.parse(raw); } catch (e) {}\n}\n\nconst patients = [];\nif (bundle.entry && Array.isArray(bundle.entry)) {\n  for (const entry of bundle.entry) {\n    const p = entry.resource;\n    if (!p || p.resourceType !== 'Patient') continue;\n\n    const patientUuid = p.id;\n\n    let openmrsId = '';\n    if (p.identifier && Array.isArray(p.identifier)) {\n      const idObj = p.identifier.find(i => \n        (i.type && i.type.text === 'OpenMRS ID') ||\n        (i.type && i.type.coding && i.type.coding.some(c => c.code === '05a29f94-c0ed-11e2-94be-8c13b969e334'))\n      ) || p.identifier[0];\n      if (idObj) openmrsId = idObj.value || '';\n    }\n\n    let given = '';\n    let family = '';\n    if (p.name && p.name.length > 0) {\n      const nameObj = p.name[0];\n      given = (nameObj.given || []).join(' ');\n      family = nameObj.family || '';\n    }\n    const fullName = `${given} ${family}`.trim() || `Patient ${openmrsId || patientUuid}`;\n\n    let phone = '';\n    if (p.telecom && Array.isArray(p.telecom)) {\n      const tel = p.telecom.find(t => t.system === 'phone') || p.telecom[0];\n      if (tel) phone = tel.value || '';\n    }\n\n    let street = '';\n    let city = '';\n    let state = '';\n    let postalCode = '';\n    let country = '';\n    if (p.address && p.address.length > 0) {\n      const addr = p.address[0];\n      if (addr.line && Array.isArray(addr.line)) {\n        street = addr.line.join(', ');\n      } else if (addr.extension) {\n        const lineExt = addr.extension.find(e => e.url && e.url.includes('address1'));\n        if (lineExt) street = lineExt.valueString || '';\n      }\n      city = addr.city || '';\n      state = addr.state || '';\n      postalCode = addr.postalCode || '';\n      country = addr.country || '';\n    }\n\n    patients.push({\n      patient_uuid: patientUuid,\n      openmrs_id: openmrsId,\n      full_name: fullName,\n      birth_date: p.birthDate || '',\n      gender: p.gender || '',\n      phone: phone,\n      street: street,\n      city: city,\n      state: state,\n      postal_code: postalCode,\n      country: country,\n      comment: `OpenMRS Master Patient Index | ID: ${openmrsId} | UUID: ${patientUuid} | DOB: ${p.birthDate || 'N/A'}`\n    });\n  }\n}\n\nreturn [{\n  json: {\n    patients: patients,\n    patient_uuids: patients.map(p => p.patient_uuid)\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        480,
+        200
+      ],
+      "id": "10000001-0000-4000-8000-000000000004",
+      "name": "Parse Demographics & Prepare Lookup"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/res.partner/search_read",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"domain\": [[\"ref\", \"in\", $json.patient_uuids]], \"fields\": [\"id\", \"name\", \"ref\"] }) }}",
+        "options": {
+          "response": {
+            "response": {
+              "fullResponse": false
+            }
+          }
+        }
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        720,
+        200
+      ],
+      "id": "10000001-0000-4000-8000-000000000005",
+      "name": "Batch Lookup Existing Partners in Odoo",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const items = $input.all();\nconst partners = [];\nfor (const item of items) {\n  const j = item.json;\n  if (Array.isArray(j)) {\n    partners.push(...j);\n  } else if (j && Array.isArray(j.body)) {\n    partners.push(...j.body);\n  } else if (j && j.id) {\n    partners.push(j);\n  }\n}\nconst existingRefs = new Set(partners.map(p => p.ref).filter(Boolean));\n\nconst prevData = $('Parse Demographics & Prepare Lookup').first()?.json || {};\nconst allPatients = prevData.patients || [];\n\nconst missing = allPatients.filter(p => !existingRefs.has(p.patient_uuid));\n\nif (missing.length === 0) {\n  return [{\n    json: {\n      has_missing: false,\n      missing_count: 0,\n      vals_list: []\n    }\n  }];\n}\n\nconst valsList = missing.map(p => ({\n  name: p.full_name,\n  ref: p.patient_uuid,\n  customer_rank: 1,\n  phone: p.phone,\n  street: p.street,\n  city: p.city,\n  zip: p.postal_code,\n  comment: p.comment\n}));\n\nreturn [{\n  json: {\n    has_missing: true,\n    missing_count: valsList.length,\n    vals_list: valsList\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        940,
+        200
+      ],
+      "id": "10000001-0000-4000-8000-000000000006",
+      "name": "Partition Missing Partners"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{ $json.has_missing }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [
+        1160,
+        200
+      ],
+      "id": "10000001-0000-4000-8000-000000000007",
+      "name": "Has Missing Partners?"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://odoo19:8069/json/2/res.partner/create",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
+            },
+            {
+              "name": "X-Odoo-Database",
+              "value": "clinic_db"
+            },
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={{ JSON.stringify({ \"vals_list\": $json.vals_list }) }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1400,
+        100
+      ],
+      "id": "10000001-0000-4000-8000-000000000009",
+      "name": "Batch Create Odoo Partners",
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "jsCode": "const result = $input.first()?.json;\nconst count = $('Partition Missing Partners').first()?.json?.missing_count || 0;\nreturn [{\n  json: {\n    status: 'SUCCESS',\n    operation: 'BATCH_CREATE',\n    created_count: count,\n    odoo_ids: result,\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1640,
+        100
+      ],
+      "id": "10000001-0000-4000-8000-000000000011",
+      "name": "Log Sync Results"
+    },
+    {
+      "parameters": {
+        "jsCode": "return [{\n  json: {\n    status: 'SUCCESS',\n    operation: 'NONE',\n    message: 'All OpenMRS patients already exist in Odoo',\n    timestamp: new Date().toISOString()\n  }\n}];"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        300
+      ],
+      "id": "10000001-0000-4000-8000-000000000010",
+      "name": "Log Up to Date"
+    }
+  ],
+  "connections": {
+    "Every 5 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent Patients from OpenMRS FHIR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Manual Execution": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent Patients from OpenMRS FHIR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Webhook Trigger": {
+      "main": [
+        [
+          {
+            "node": "Fetch Recent Patients from OpenMRS FHIR",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Recent Patients from OpenMRS FHIR": {
+      "main": [
+        [
+          {
+            "node": "Parse Demographics & Prepare Lookup",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Demographics & Prepare Lookup": {
+      "main": [
+        [
+          {
+            "node": "Batch Lookup Existing Partners in Odoo",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Batch Lookup Existing Partners in Odoo": {
+      "main": [
+        [
+          {
+            "node": "Partition Missing Partners",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Partition Missing Partners": {
+      "main": [
+        [
+          {
+            "node": "Has Missing Partners?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Has Missing Partners?": {
+      "main": [
+        [
+          {
+            "node": "Batch Create Odoo Partners",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Log Up to Date",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Batch Create Odoo Partners": {
+      "main": [
+        [
+          {
+            "node": "Log Sync Results",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}
