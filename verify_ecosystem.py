@@ -5,14 +5,15 @@ import json
 import base64
 import time
 import sys
+import os
 import subprocess
 import datetime
 
-OPENMRS_BASE = "http://openmrs-gateway/openmrs"
-N8N_BASE = "http://n8n-engine:5678"
-ODOO_URL = "http://odoo19:8069"
-ODOO_AUTH = "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
-ODOO_DB = "clinic_db"
+OPENMRS_BASE = os.environ.get("OPENMRS_BASE", "http://localhost:8080/openmrs").rstrip("/")
+N8N_BASE = os.environ.get("N8N_BASE", "http://localhost:5678").rstrip("/")
+ODOO_URL = os.environ.get("ODOO_URL", "http://localhost:8069").rstrip("/")
+ODOO_AUTH = os.environ.get("ODOO_AUTH", "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c")
+ODOO_DB = os.environ.get("ODOO_DB", "clinic_db")
 
 def omrs_req(method, endpoint, payload=None):
     url = f"{OPENMRS_BASE}/{endpoint}"
@@ -297,7 +298,12 @@ wiz = env['account.payment.register'].with_context(active_model='account.move', 
 wiz.action_create_payments()
 env.cr.commit()
 """
-subprocess.run(["odoo", "shell", "-d", ODOO_DB, "--no-http"], input=pay_script, text=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+import shutil
+if shutil.which("docker"):
+    shell_cmd = ["docker", "exec", "-i", "odoo19", "odoo", "shell", "-d", ODOO_DB, "--no-http"]
+else:
+    shell_cmd = ["odoo", "shell", "-d", ODOO_DB, "--no-http"]
+subprocess.run(shell_cmd, input=pay_script, text=True, check=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
 
 # Verify invoice status
 inv_after = odoo_call("account.move", "search_read", {

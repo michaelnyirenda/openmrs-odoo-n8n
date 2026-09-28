@@ -132,7 +132,7 @@ fi
 
 log_info "Ensuring volume directories exist with appropriate permissions..."
 mkdir -p odoo-db-data odoo-web-data odoo-config openmrs-db-data openmrs-data n8n-data workflows docs
-chmod 777 odoo-web-data odoo-config n8n-data 2>/dev/null || true
+chmod -R 777 odoo-web-data odoo-config n8n-data openmrs-data 2>/dev/null || true
 
 # ------------------------------------------------------------------------------
 # 4. Start Docker Containers
@@ -221,14 +221,20 @@ fi
 
 if [ -f workflows/sync_patients_openmrs_odoo.json ]; then
     docker cp workflows/sync_patients_openmrs_odoo.json n8n-engine:/tmp/sync_patients_openmrs_odoo.json 2>/dev/null || true
-    docker exec -u node n8n-engine n8n import:workflow --input=/tmp/sync_patients_openmrs_odoo.json --activeState=fromJson 2>/dev/null || true
+    docker exec -u node n8n-engine n8n import:workflow --input=/tmp/sync_patients_openmrs_odoo.json 2>/dev/null || true
 fi
 
 if [ -f workflows/order_to_billing_and_stock.json ]; then
     docker cp workflows/order_to_billing_and_stock.json n8n-engine:/tmp/order_to_billing_and_stock.json 2>/dev/null || true
-    docker exec -u node n8n-engine n8n import:workflow --input=/tmp/order_to_billing_and_stock.json --activeState=fromJson 2>/dev/null || true
+    docker exec -u node n8n-engine n8n import:workflow --input=/tmp/order_to_billing_and_stock.json 2>/dev/null || true
 fi
-log_success "Imported n8n clinical workflows."
+
+log_info "Activating and publishing n8n workflows..."
+docker exec -u node n8n-engine n8n publish:workflow --id=WkflwSyncPat0001 2>/dev/null || true
+docker exec -u node n8n-engine n8n publish:workflow --id=WkflwOrderBill002 2>/dev/null || true
+$COMPOSE_CMD restart n8n
+wait_for_http "http://localhost:5678/healthz" "n8n Integration Engine (Active)" 20 2 || true
+log_success "Imported and activated n8n clinical workflows."
 
 # ------------------------------------------------------------------------------
 # 8. Clinical Data Seeding
