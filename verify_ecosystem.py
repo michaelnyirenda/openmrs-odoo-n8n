@@ -139,9 +139,23 @@ def wait_for_clearance(encounter_uuid, timeout=30):
         time.sleep(1)
     raise TimeoutError(f"Financial clearance observation for {encounter_uuid} not found in OpenMRS within {timeout}s")
 
+def ensure_odoo_products():
+    """Ensure standard clinical products and stock exist before verifying ecosystem."""
+    prods = odoo_call("product.product", "search_read", {
+        "domain": [["default_code", "in", ["CONS-GEN", "LAB-FBC", "DRUG-PARA500", "DRUG-AMOX250", "INP-BED"]]],
+        "fields": ["id", "default_code", "qty_available"]
+    })
+    existing_codes = {p["default_code"]: p for p in prods}
+    if "DRUG-AMOX250" not in existing_codes or "CONS-GEN" not in existing_codes:
+        print("[*] Hospital products/stock not fully initialized. Running automated seed...")
+        import subprocess
+        subprocess.run(["python3", "seed_clinical_ecosystem.py", "--skip-patients"], check=True)
+
 print("=" * 80)
 print("STARTING END-TO-END PATIENT LIFECYCLE SIMULATION & VERIFICATION")
 print("=" * 80)
+
+ensure_odoo_products()
 
 # -------------------------------------------------------------
 # STEP 1: PATIENT REGISTRATION & DEMOGRAPHICS SYNC

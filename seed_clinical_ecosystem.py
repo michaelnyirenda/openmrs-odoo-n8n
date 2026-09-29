@@ -539,6 +539,7 @@ def main():
     parser.add_argument("--odoo-url", default=DEFAULT_ODOO_URL, help=f"Odoo base URL (default: {DEFAULT_ODOO_URL})")
     parser.add_argument("--odoo-db", default=DEFAULT_ODOO_DB, help=f"Odoo DB (default: {DEFAULT_ODOO_DB})")
     parser.add_argument("--odoo-api-key", default=DEFAULT_ODOO_API_KEY, help="Odoo API Key")
+    parser.add_argument("--skip-patients", action="store_true", help="Only setup Odoo products and stock, skip registering mock patients")
 
     args = parser.parse_args()
 
@@ -550,16 +551,17 @@ def main():
 
     # Initialize clients
     odoo = OdooClient(args.odoo_url, args.odoo_db, args.odoo_api_key)
-    openmrs = OpenMRSClient(args.openmrs_url, args.openmrs_user, args.openmrs_pass)
 
     # 1. Setup Odoo Products and Inventory
     product_map = setup_odoo_products_and_inventory(odoo)
 
-    # 2. Register Patients and Clinical Journeys in OpenMRS
-    journey_results = seed_patients_and_journeys(openmrs, product_map)
+    if not args.skip_patients:
+        openmrs = OpenMRSClient(args.openmrs_url, args.openmrs_user, args.openmrs_pass)
+        # 2. Register Patients and Clinical Journeys in OpenMRS
+        journey_results = seed_patients_and_journeys(openmrs, product_map)
 
-    # 3. Print Summary Table
-    print_summary_table(journey_results)
+        # 3. Print Summary Table
+        print_summary_table(journey_results)
 
 
 if __name__ == "__main__":
