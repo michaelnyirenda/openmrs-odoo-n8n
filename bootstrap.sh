@@ -177,12 +177,14 @@ log_info "Verifying Odoo database 'clinic_db'..."
 ODOO_DB_EXISTS=$(docker exec -i odoo-db psql -U odoo -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='clinic_db'" 2>/dev/null || echo "0")
 
 if [ "$ODOO_DB_EXISTS" != "1" ]; then
-    log_info "Database 'clinic_db' does not exist yet. Initializing with healthcare modules (base,sale,purchase,account,stock)..."
+    log_info "Database 'clinic_db' does not exist yet. Initializing with healthcare modules (base,sale_management,stock,account,purchase)..."
     log_info "This may take 1-2 minutes on first run. Please wait..."
-    docker exec -i odoo19 odoo -d clinic_db -i base,sale,purchase,account,stock --without-demo=all --stop-after-init
+    docker exec -i odoo19 odoo -d clinic_db -i base,sale_management,stock,account,purchase --without-demo=all --stop-after-init
     log_success "Odoo database 'clinic_db' initialized successfully!"
 else
-    log_success "Odoo database 'clinic_db' already exists."
+    log_info "Ensuring core modules (sale_management,stock,account) are installed in 'clinic_db'..."
+    docker exec -i odoo19 odoo -d clinic_db -i sale_management,stock,account --stop-after-init 2>/dev/null || true
+    log_success "Odoo database 'clinic_db' verified."
 fi
 
 # Ensure admin user login, password, and API Key exist
