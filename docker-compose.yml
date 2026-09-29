@@ -69,7 +69,7 @@ services:
       OMRS_DB_USER: openmrs
       OMRS_DB_PASSWORD: openmrs_secure_db_pass
       OMRS_CONFIG_AUTO_UPDATE_DATABASE: "true"
-      OMRS_CONFIG_CREATE_TABLES: "false"
+      OMRS_CONFIG_CREATE_TABLES: "true"
     volumes:
       - ./openmrs-data:/openmrs/data:Z
     networks:
