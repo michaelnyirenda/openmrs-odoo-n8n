@@ -168,7 +168,7 @@ wait_for_http() {
 # Wait for services
 wait_for_http "http://localhost:5678/healthz" "n8n Integration Engine" 30 3 || true
 wait_for_http "http://localhost:8069/web/login" "Odoo 19 ERP" 30 3 || true
-wait_for_http "http://localhost:8080/openmrs/spa" "OpenMRS 3 Gateway & SPA" 45 4 || true
+wait_for_http "http://localhost:8080/openmrs/ws/rest/v1/session" "OpenMRS 3 Backend REST API" 60 5 || true
 
 # ------------------------------------------------------------------------------
 # 6. Odoo Database Initialization & API Key Setup

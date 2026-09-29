@@ -15,22 +15,40 @@ ODOO_URL = os.environ.get("ODOO_URL", "http://localhost:8069").rstrip("/")
 ODOO_AUTH = os.environ.get("ODOO_AUTH", "bearer 1f4624cfdc7ce0fea669677b8ff485ad087f720c")
 ODOO_DB = os.environ.get("ODOO_DB", "clinic_db")
 
-def omrs_req(method, endpoint, payload=None):
+def omrs_req(method, endpoint, payload=None, retries=5, retry_delay=3):
     url = f"{OPENMRS_BASE}/{endpoint}"
     data = json.dumps(payload).encode() if payload is not None else None
-    req = urllib.request.Request(url, data=data, method=method)
     auth = base64.b64encode(b"admin:Admin123").decode()
-    req.add_header("Authorization", f"Basic {auth}")
-    req.add_header("Content-Type", "application/json")
-    req.add_header("Accept", "application/json")
-    try:
-        with urllib.request.urlopen(req) as resp:
-            content = resp.read().decode()
-            return json.loads(content) if content else {}
-    except urllib.error.HTTPError as e:
-        err_msg = e.read().decode()
-        print(f"HTTP ERROR {e.code} on {method} {url}: {err_msg}")
-        raise RuntimeError(f"OpenMRS request failed: {e.code} - {err_msg}")
+    
+    for attempt in range(1, retries + 1):
+        req = urllib.request.Request(url, data=data, method=method)
+        req.add_header("Authorization", f"Basic {auth}")
+        req.add_header("Content-Type", "application/json")
+        req.add_header("Accept", "application/json")
+        try:
+            with urllib.request.urlopen(req, timeout=30) as resp:
+                content = resp.read().decode()
+                if not content or not content.strip():
+                    return {}
+                try:
+                    return json.loads(content)
+                except json.JSONDecodeError:
+                    if attempt < retries:
+                        time.sleep(retry_delay)
+                        continue
+                    raise RuntimeError(f"OpenMRS returned non-JSON response from {url}: {content[:200]}")
+        except urllib.error.HTTPError as e:
+            err_msg = e.read().decode()
+            if attempt < retries and e.code in (502, 503, 504):
+                time.sleep(retry_delay)
+                continue
+            print(f"HTTP ERROR {e.code} on {method} {url}: {err_msg}")
+            raise RuntimeError(f"OpenMRS request failed: {e.code} - {err_msg}")
+        except (urllib.error.URLError, ConnectionResetError) as e:
+            if attempt < retries:
+                time.sleep(retry_delay)
+                continue
+            raise RuntimeError(f"OpenMRS connection failed on {method} {url}: {e}")
 
 def odoo_call(model, method, body):
     url = f"{ODOO_URL}/json/2/{model}/{method}"
