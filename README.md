@@ -141,7 +141,7 @@ The automated bootstrap script orchestrates the entire stack from zero to fully 
 | :--- | :--- | :--- | :--- | :--- |
 | **OpenMRS 3 Frontend (SPA)** | [http://localhost:8080/openmrs/spa](http://localhost:8080/openmrs/spa) | `admin` | `Admin123` | `openmrs` (MariaDB) |
 | **OpenMRS REST / FHIR API** | `http://localhost:8080/openmrs/ws/fhir2/R4` | `admin` | `Admin123` | - |
-| **Odoo 19 ERP Web UI** | [http://localhost:8069](http://localhost:8069) | `admin` | `admin` | `clinic_db` |
+| **Odoo 19 ERP Web UI** | [http://localhost:8069](http://localhost:8069) | `admin@clinic.com` | `admin` | `clinic_db` |
 | **Odoo 19 External JSON-2 API** | `http://localhost:8069/json/2/<model>/<method>` | - | `1f4624cfdc7ce0fea669677b8ff485ad087f720c` | `clinic_db` |
 | **n8n Automation Engine** | [http://localhost:5678](http://localhost:5678) | - | Setup on first web visit or pre-configured | SQLite / embedded |
 

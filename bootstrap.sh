@@ -185,11 +185,16 @@ else
     log_success "Odoo database 'clinic_db' already exists."
 fi
 
-# Ensure API Key exists for admin
-log_info "Configuring Odoo integration API Key for headless automation..."
+# Ensure admin user login, password, and API Key exist
+log_info "Configuring Odoo admin credentials and integration API Key..."
 docker exec -i odoo19 odoo shell -d clinic_db << 'EOF' 2>/dev/null || true
 try:
     admin = env.ref('base.user_admin')
+    # Guarantee standard login and password
+    admin.login = 'admin@clinic.com'
+    admin._change_password('admin')
+    
+    # Guarantee API Key for n8n and automation scripts
     target_key = '1f4624cfdc7ce0fea669677b8ff485ad087f720c'
     target_idx = target_key[:8]
     env.cr.execute("SELECT id FROM res_users_apikeys WHERE index = %s AND user_id = %s", [target_idx, admin.id])
@@ -200,14 +205,12 @@ try:
             "INSERT INTO res_users_apikeys (name, user_id, scope, expiration_date, key, index) VALUES (%s, %s, %s, %s, %s, %s)",
             ['n8n Integration Key', admin.id, 'rpc', None, ctx.hash(target_key), target_idx]
         )
-        env.cr.commit()
-        print("API Key created successfully.")
-    else:
-        print("API Key already exists.")
+    env.cr.commit()
+    print("Odoo admin credentials and API key configured successfully.")
 except Exception as e:
-    print(f"Key registration status: {e}")
+    print(f"Odoo user configuration status: {e}")
 EOF
-log_success "Odoo API key configured."
+log_success "Odoo admin credentials and API key configured."
 
 # ------------------------------------------------------------------------------
 # 7. n8n Workflows & Credentials Auto-Import
@@ -269,7 +272,7 @@ echo -e "   - Password:            Admin123"
 echo ""
 echo -e " ${BOLD}Odoo 19 ERP:${NC}            http://localhost:8069"
 echo -e "   - Database:            clinic_db"
-echo -e "   - Username:            admin"
+echo -e "   - Username:            admin@clinic.com"
 echo -e "   - Password:            admin"
 echo -e "   - Integration API Key: 1f4624cfdc7ce0fea669677b8ff485ad087f720c"
 echo ""
