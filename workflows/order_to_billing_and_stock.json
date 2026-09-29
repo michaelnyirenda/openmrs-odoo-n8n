@@ -56,6 +56,15 @@
         "url": "http://openmrs-gateway/openmrs/ws/fhir2/R4/Encounter?_tag=encounter&_sort=-date&_count=50&_revinclude=ServiceRequest:encounter&_revinclude=MedicationRequest:encounter",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YWRtaW46QWRtaW4xMjM="
+            }
+          ]
+        },
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -79,6 +88,15 @@
         "url": "http://openmrs-gateway/openmrs/ws/fhir2/R4/MedicationRequest?_count=100",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YWRtaW46QWRtaW4xMjM="
+            }
+          ]
+        },
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -102,6 +120,15 @@
         "url": "http://openmrs-gateway/openmrs/ws/fhir2/R4/ServiceRequest?_count=100",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YWRtaW46QWRtaW4xMjM="
+            }
+          ]
+        },
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",
@@ -808,6 +835,10 @@
         "headerParameters": {
           "parameters": [
             {
+              "name": "Authorization",
+              "value": "Basic YWRtaW46QWRtaW4xMjM="
+            },
+            {
               "name": "Content-Type",
               "value": "application/json"
             }
@@ -839,6 +870,15 @@
         "url": "=http://openmrs-gateway/openmrs/ws/rest/v1/obs?encounter={{ $json.encounter_uuid }}&concept=162169AAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YWRtaW46QWRtaW4xMjM="
+            }
+          ]
+        },
         "options": {}
       },
       "type": "n8n-nodes-base.httpRequest",

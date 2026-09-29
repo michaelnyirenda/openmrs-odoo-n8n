@@ -69,6 +69,7 @@ def trigger_n8n(webhook_path):
 
 def wait_for_partner(patient_uuid, timeout=30):
     start = time.time()
+    last_err = None
     while time.time() - start < timeout:
         try:
             res = odoo_call("res.partner", "search_read", {
@@ -78,10 +79,11 @@ def wait_for_partner(patient_uuid, timeout=30):
             })
             if res and len(res) > 0:
                 return res[0]
-        except Exception:
-            pass
+        except Exception as e:
+            last_err = str(e)
         time.sleep(1)
-    raise TimeoutError(f"Partner for patient UUID {patient_uuid} not found in Odoo within {timeout}s")
+    err_suffix = f" (Last error: {last_err})" if last_err else ""
+    raise TimeoutError(f"Partner for patient UUID {patient_uuid} not found in Odoo within {timeout}s{err_suffix}")
 
 def wait_for_picking(med_uuid, timeout=30):
     start = time.time()

@@ -56,6 +56,15 @@
         "url": "http://openmrs-gateway/openmrs/ws/fhir2/R4/Patient?_sort=-_lastUpdated&_count=100",
         "authentication": "genericCredentialType",
         "genericAuthType": "httpBasicAuth",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "Authorization",
+              "value": "Basic YWRtaW46QWRtaW4xMjM="
+            }
+          ]
+        },
         "options": {
           "response": {
             "response": {
@@ -120,7 +129,7 @@
         "options": {
           "response": {
             "response": {
-              "fullResponse": false
+              "fullResponse": true
             }
           }
         }
