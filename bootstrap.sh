@@ -235,10 +235,12 @@ if [ -f workflows/order_to_billing_and_stock.json ]; then
 fi
 
 log_info "Activating and publishing n8n workflows..."
-docker exec -u node n8n-engine n8n publish:workflow --id=WkflwSyncPat0001 2>/dev/null || true
-docker exec -u node n8n-engine n8n publish:workflow --id=WkflwOrderBill002 2>/dev/null || true
+docker exec -u node n8n-engine n8n publish:workflow --id=WkflwSyncPat0001 2>/dev/null || docker exec -u node n8n-engine n8n update:workflow --id=WkflwSyncPat0001 --active=true 2>/dev/null || true
+docker exec -u node n8n-engine n8n publish:workflow --id=WkflwOrderBill002 2>/dev/null || docker exec -u node n8n-engine n8n update:workflow --id=WkflwOrderBill002 --active=true 2>/dev/null || true
 $COMPOSE_CMD restart n8n
 wait_for_http "http://localhost:5678/healthz" "n8n Integration Engine (Active)" 20 2 || true
+# Give n8n a few seconds to register production webhook routes
+sleep 3
 log_success "Imported and activated n8n clinical workflows."
 
 # ------------------------------------------------------------------------------
