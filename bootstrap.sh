@@ -83,7 +83,16 @@ if ! command -v docker >/dev/null 2>&1; then
 fi
 
 if ! docker info >/dev/null 2>&1; then
-    log_error "Docker daemon is not running. Please start Docker / Docker Desktop."
+    DOCKER_ERR=$(docker info 2>&1 || true)
+    if [[ "$DOCKER_ERR" =~ "permission denied" ]]; then
+        log_error "Permission denied connecting to Docker daemon."
+        log_warn "Your user ($USER) is not yet active in the 'docker' group."
+        log_warn "Run the following command to apply group permissions, then rerun bootstrap:"
+        log_warn "  sudo usermod -aG docker \$USER && newgrp docker"
+    else
+        log_error "Docker daemon is not running. Please start Docker / Docker Desktop."
+        log_warn "On Linux, run: sudo systemctl start docker"
+    fi
     exit 1
 fi
 
@@ -177,13 +186,13 @@ log_info "Verifying Odoo database 'clinic_db'..."
 ODOO_DB_EXISTS=$(docker exec -i odoo-db psql -U odoo -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='clinic_db'" 2>/dev/null || echo "0")
 
 if [ "$ODOO_DB_EXISTS" != "1" ]; then
-    log_info "Database 'clinic_db' does not exist yet. Initializing with healthcare modules (base,sale_management,stock,account,purchase)..."
+    log_info "Database 'clinic_db' does not exist yet. Initializing with healthcare modules (base,sale_management,stock,account,purchase,product_expiry)..."
     log_info "This may take 1-2 minutes on first run. Please wait..."
-    docker exec -i odoo19 odoo -d clinic_db -i base,sale_management,stock,account,purchase --without-demo=all --stop-after-init
+    docker exec -i odoo19 odoo -d clinic_db -i base,sale_management,stock,account,purchase,product_expiry --without-demo=all --stop-after-init
     log_success "Odoo database 'clinic_db' initialized successfully!"
 else
-    log_info "Ensuring core modules (sale_management,stock,account) are installed in 'clinic_db'..."
-    docker exec -i odoo19 odoo -d clinic_db -i sale_management,stock,account --stop-after-init 2>/dev/null || true
+    log_info "Ensuring core modules (sale_management,stock,account,product_expiry) are installed in 'clinic_db'..."
+    docker exec -i odoo19 odoo -d clinic_db -i sale_management,stock,account,product_expiry --stop-after-init 2>/dev/null || true
     log_success "Odoo database 'clinic_db' verified."
 fi
 

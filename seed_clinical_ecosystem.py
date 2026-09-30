@@ -62,7 +62,8 @@ class OdooClient:
     def create(self, model: str, vals: Dict[str, Any]) -> int:
         url = f"{self.base_url}/json/2/{model}/create"
         resp = self.session.post(url, json={"vals_list": [vals]}, timeout=30)
-        resp.raise_for_status()
+        if not resp.ok:
+            raise RuntimeError(f"Odoo create {model} failed ({resp.status_code}): {resp.text}")
         data = resp.json()
         if isinstance(data, list) and len(data) > 0:
             return data[0]
@@ -250,11 +251,20 @@ def setup_odoo_products_and_inventory(odoo: OdooClient) -> Dict[str, Dict[str, A
             else:
                 lot_vals = {
                     "name": lot_name,
-                    "product_id": prod_id,
-                    "expiration_date": p["expiration_date"]
+                    "product_id": prod_id
                 }
-                lot_id = odoo.create("stock.lot", lot_vals)
-                print(f"      - Created Lot: {lot_name} (ID: {lot_id}) with expiry {p['expiration_date']}")
+                if p.get("expiration_date"):
+                    lot_vals["expiration_date"] = p["expiration_date"]
+                try:
+                    lot_id = odoo.create("stock.lot", lot_vals)
+                except Exception as e:
+                    # Fallback without expiration_date if product_expiry is not active
+                    if "expiration_date" in lot_vals:
+                        del lot_vals["expiration_date"]
+                        lot_id = odoo.create("stock.lot", lot_vals)
+                    else:
+                        raise e
+                print(f"      - Created Lot: {lot_name} (ID: {lot_id})")
 
             # Check stock quant
             quants = odoo.search_read(
