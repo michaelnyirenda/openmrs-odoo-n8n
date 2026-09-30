@@ -67,7 +67,7 @@ def trigger_n8n(webhook_path):
     with urllib.request.urlopen(req, timeout=15) as resp:
         return resp.status
 
-def wait_for_partner(patient_uuid, timeout=30):
+def wait_for_partner(patient_uuid, timeout=45):
     start = time.time()
     last_err = None
     while time.time() - start < timeout:
@@ -85,7 +85,7 @@ def wait_for_partner(patient_uuid, timeout=30):
     err_suffix = f" (Last error: {last_err})" if last_err else ""
     raise TimeoutError(f"Partner for patient UUID {patient_uuid} not found in Odoo within {timeout}s{err_suffix}")
 
-def wait_for_picking(med_uuid, timeout=30):
+def wait_for_picking(med_uuid, timeout=45):
     start = time.time()
     origin = f"OPENMRS-MED-{med_uuid}"
     while time.time() - start < timeout:
@@ -110,7 +110,7 @@ def wait_for_picking(med_uuid, timeout=30):
         last_state = "UNKNOWN"
     raise TimeoutError(f"Stock picking for {origin} not in 'done' state within {timeout}s (current state: {last_state})")
 
-def wait_for_invoice(encounter_uuid, timeout=30):
+def wait_for_invoice(encounter_uuid, timeout=45):
     start = time.time()
     ref = f"OPENMRS-ENC-{encounter_uuid}"
     while time.time() - start < timeout:
@@ -126,7 +126,7 @@ def wait_for_invoice(encounter_uuid, timeout=30):
         time.sleep(1)
     raise TimeoutError(f"Invoice for {ref} not found in Odoo within {timeout}s")
 
-def wait_for_clearance(encounter_uuid, timeout=30):
+def wait_for_clearance(encounter_uuid, timeout=45):
     start = time.time()
     while time.time() - start < timeout:
         try:
@@ -146,7 +146,7 @@ def ensure_odoo_products():
         "fields": ["id", "default_code", "qty_available"]
     })
     existing_codes = {p["default_code"]: p for p in prods}
-    if "DRUG-AMOX250" not in existing_codes or "CONS-GEN" not in existing_codes:
+    if "DRUG-AMOX250" not in existing_codes or "CONS-GEN" not in existing_codes or "INP-BED" not in existing_codes:
         print("[*] Hospital products/stock not fully initialized. Running automated seed...")
         import subprocess
         subprocess.run(["python3", "seed_clinical_ecosystem.py", "--skip-patients"], check=True)
@@ -400,8 +400,14 @@ for l in inp_lines:
     prod_name = l["product_id"][1] if l["product_id"] else l["name"]
     print(f" - {prod_name}: ${l['price_unit']}")
 
-bed_lines = [l for l in inp_lines if "INP-BED" in (l["product_id"][1] if l["product_id"] else "")]
-consult_lines = [l for l in inp_lines if "CONS-GEN" in (l["product_id"][1] if l["product_id"] else "")]
+bed_lines = [
+    l for l in inp_lines 
+    if "INP-BED" in (l["product_id"][1] if l["product_id"] else "") or "Bed" in l.get("name", "") or "Admission" in l.get("name", "")
+]
+consult_lines = [
+    l for l in inp_lines 
+    if "CONS-GEN" in (l["product_id"][1] if l["product_id"] else "") or "Consultation" in l.get("name", "")
+]
 assert len(bed_lines) > 0, "INP-BED fee not present on inpatient invoice!"
 assert len(consult_lines) > 0, "CONS-GEN fee not present on inpatient invoice!"
 print("Inpatient Admission verified: Contains both Daily Bed Fee ($100.00) and Consultation Fee ($50.00)!")

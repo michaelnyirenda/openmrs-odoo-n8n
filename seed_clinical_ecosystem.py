@@ -203,6 +203,17 @@ PRODUCTS_CONFIG = [
         "concept_uuid": "12AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
         "concept_display": "X-ray chest",
         "stock_qty": 0,
+    },
+    {
+        "name": "Inpatient Ward Bed & Nursing Care",
+        "default_code": "INP-BED",
+        "type": "service",
+        "is_storable": False,
+        "tracking": "none",
+        "list_price": 100.00,
+        "concept_uuid": "e8d0e70a-4a25-4c07-b24f-ef7700e70487",
+        "concept_display": "Inpatient bed stay",
+        "stock_qty": 0,
     }
 ]
 
